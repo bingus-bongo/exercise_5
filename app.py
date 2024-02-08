@@ -173,14 +173,103 @@ def room(room_id):
 # -------------------------------- API ROUTES ----------------------------------
 
 # POST to change the user's name
-@app.route('/api/user/name')
+@app.route('/api/user/name', methods=['POST'])
 def update_username():
-    return {}, 403
+    user = get_user_from_cookie(request)
+    if not user:
+        return {}, 403
+    
+    if authenticate(user, request.headers.get('api_key')):
+        data = request.json
+        new_name = data.get('new_name')
+        query_db('UPDATE users SET name = ? WHERE api_key = ?', [new_name, request.headers.get('api_key')])
+    else:
+        return jsonify({
+            'error_message': "API Authentication failed",
+            'code': 401
+        }), 401
+
 
 # POST to change the user's password
+@app.route('/api/user/password', methods=['POST'])
+def update_password():
+    user = get_user_from_cookie(request)
+    if authenticate(user, request.headers.get('api_key')):
+        data = request.json
+        new_password = data.get('new_password')
+        query_db('UPDATE users SET password = ? WHERE api_key = ?', [new_password, request.headers.get('api_key')])
+    else:
+        return jsonify({
+            'error_message': "API Authentication failed",
+            'code': 401
+        }), 401
+
 
 # POST to change the name of a room
+@app.route('/rooms/<int:room_id>/namechange', methods=['POST'])
+def change_room_name(room_id):
+    user = get_user_from_cookie(request)
+    if authenticate(user, request.headers.get('api_key')):
+        data = request.json
+        new_room_name = data.get('new_room_name')
+        query_db('UPDATE rooms SET name = ? WHERE id = ?', [new_room_name, room_id])
+    else:
+        return jsonify({
+            'error_message': "API Authentication failed",
+            'code': 401
+        }), 401
 
 # GET to get all the messages in a room
+@app.route('/rooms/<int:room_id>/get/messages', methods=['GET'])
+def get_messages(room_id):
+    user = get_user_from_cookie(request)
+    print(request)
+    print("api below")
+    print(request.headers.get('api_key'))
+    if authenticate(user, request.headers.get('api_key')):
+        room = query_db('SELECT * FROM messages WHERE id = ?', [room_id])
+        columns = room.keys()
+        room_dict = {col: room[col] for col in columns}
+        return jsonify(room_dict)
+    else:
+        return jsonify({
+            'error_message': "API Authentication failed",
+            'code': 401
+        }), 401
 
 # POST to post a new message to a room
+@app.route('/rooms/<int:room_id>/new/message', methods=['POST'])
+def post_message(room_id):
+    user = get_user_from_cookie(request)
+    if authenticate(user, request.headers.get('api_key')):
+        data = request.json
+        columns = user.keys()
+        user_dict = {col: user[col] for col in columns}
+        id = user_dict['id']
+        new_message = data.get('message')
+        query_db('INSERT INTO messages (user_id, room_id, body)', [id, room_id, new_message])
+    else:
+        return jsonify({
+            'error_message': "API Authentication failed",
+            'code': 401
+        }), 401
+
+
+@app.route('/test')
+def test():
+    row_dicts = []
+    # user = get_user_from_cookie(request)
+    user_info = query_db("SELECT * FROM messages")
+    for row in user_info:
+        columns = row.keys()
+        row_dict = {col: row[col] for col in columns}
+        row_dicts.append(row_dict)
+    return row_dicts
+
+def authenticate(user, request_api_key):
+    if user is None: return redirect('/')
+    
+    columns = user.keys()
+    user_dict = {col: user[col] for col in columns}
+
+    return request_api_key == user_dict['api_key']
