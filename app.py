@@ -40,9 +40,7 @@ def query_db(query, args=(), one=False):
     db = get_db()
     cursor = db.execute(query, args)
     print("query_db")
-    print(cursor)
     rows = cursor.fetchall()
-    print(rows)
     db.commit()
     cursor.close()
     if rows:
@@ -179,10 +177,14 @@ def update_username():
     if not user:
         return {}, 403
     
-    if authenticate(user, request.headers.get('api_key')):
+    if authenticate(user, request.headers.get('api-key')):
         data = request.json
-        new_name = data.get('new_name')
-        query_db('UPDATE users SET name = ? WHERE api_key = ?', [new_name, request.headers.get('api_key')])
+        new_username = data.get('new_username')
+        query_db('UPDATE users SET name = ? WHERE api_key = ?', [new_username, request.headers.get('api-key')])
+        return jsonify({
+            'message': 'success',
+            'code': 200
+        }), 200
     else:
         return jsonify({
             'error_message': "API Authentication failed",
@@ -194,10 +196,20 @@ def update_username():
 @app.route('/api/user/password', methods=['POST'])
 def update_password():
     user = get_user_from_cookie(request)
+    if not user:
+        return {}, 403
+
     if authenticate(user, request.headers.get('api_key')):
         data = request.json
         new_password = data.get('new_password')
-        query_db('UPDATE users SET password = ? WHERE api_key = ?', [new_password, request.headers.get('api_key')])
+        query_db('UPDATE users SET password = ? WHERE api_key = ?', [new_password, request.headers.get('api-key')])
+        json_response = jsonify({
+            'message': 'success',
+            'code': 200
+        }), 200
+        response = make_response(json_response)
+        response.set_cookie('user_password', new_password)
+        return response
     else:
         return jsonify({
             'error_message': "API Authentication failed",
@@ -209,10 +221,14 @@ def update_password():
 @app.route('/rooms/<int:room_id>/namechange', methods=['POST'])
 def change_room_name(room_id):
     user = get_user_from_cookie(request)
-    if authenticate(user, request.headers.get('api_key')):
+    if authenticate(user, request.headers.get('api-key')):
         data = request.json
         new_room_name = data.get('new_room_name')
         query_db('UPDATE rooms SET name = ? WHERE id = ?', [new_room_name, room_id])
+        return jsonify({
+            'message': 'success',
+            'code': 200
+        }), 200
     else:
         return jsonify({
             'error_message': "API Authentication failed",
@@ -223,14 +239,23 @@ def change_room_name(room_id):
 @app.route('/rooms/<int:room_id>/get/messages', methods=['GET'])
 def get_messages(room_id):
     user = get_user_from_cookie(request)
-    print(request)
-    print("api below")
-    print(request.headers.get('api_key'))
-    if authenticate(user, request.headers.get('api_key')):
-        room = query_db('SELECT * FROM messages WHERE id = ?', [room_id])
-        columns = room.keys()
-        room_dict = {col: room[col] for col in columns}
-        return jsonify(room_dict)
+    if authenticate(user, request.headers.get('api-key')):
+        rooms = query_db('SELECT * FROM messages WHERE room_id = ?', [room_id])
+        room_dicts = []
+        for room in rooms:
+            columns = room.keys()
+            room_dict = {col: room[col] for col in columns}
+            room_dicts.append(room_dict)
+        users = query_db('SELECT * FROM users')
+        user_dicts = []
+        for user in users:
+            columns = user.keys()
+            user_dict = {col: user[col] for col in columns}
+            user_dicts.append(user_dict)
+            for room_dict in room_dicts:
+                if room_dict['user_id'] == user_dict['id']:
+                    room_dict['name'] = user_dict['name']
+        return jsonify(room_dicts)
     else:
         return jsonify({
             'error_message': "API Authentication failed",
@@ -241,13 +266,27 @@ def get_messages(room_id):
 @app.route('/rooms/<int:room_id>/new/message', methods=['POST'])
 def post_message(room_id):
     user = get_user_from_cookie(request)
-    if authenticate(user, request.headers.get('api_key')):
+    if authenticate(user, request.headers.get('api-key')):
         data = request.json
         columns = user.keys()
         user_dict = {col: user[col] for col in columns}
         id = user_dict['id']
         new_message = data.get('message')
-        query_db('INSERT INTO messages (user_id, room_id, body)', [id, room_id, new_message])
+        query_db('INSERT INTO messages (user_id, room_id, body) VALUES (?, ?, ?)', [id, room_id, new_message])
+        return jsonify({
+            'message': 'success',
+            'code': 200
+        }), 200
+        # Debugging
+        # messages = query_db('SELECT * FROM messages')
+        # message_dicts = []
+        # for message in messages:
+        #     columns = message.keys()
+        #     message_dict = {col: message[col] for col in columns}
+        #     message_dicts.append(message_dict)
+        # print('MDICT BELOW')
+        # print(message_dicts)
+        # return "debugging..."
     else:
         return jsonify({
             'error_message': "API Authentication failed",
